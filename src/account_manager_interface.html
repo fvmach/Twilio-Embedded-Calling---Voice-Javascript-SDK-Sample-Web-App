@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Account Manager VoIP Interface</title>
+    <script src="https://sdk.twilio.com/js/client/v1.14/twilio.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; padding: 20px; }
+        .call-button { padding: 10px; margin: 10px; font-size: 16px; cursor: pointer; }
+        .accept { background-color: #28a745; color: white; border: none; }
+        .reject { background-color: #dc3545; color: white; border: none; }
+        .control-button { padding: 5px; margin: 5px; cursor: pointer; }
+        #call-controls { display: none; margin-top: 10px; }
+    </style>
+</head>
+<body>
+    <h2>Account Manager VoIP Interface</h2>
+    <p><strong>Logged in as:</strong> <span id="identity">Loading...</span></p>
+    <p id="status">Status: Connecting...</p>
+    
+    <div id="incoming-call" style="display: none;">
+        <p id="caller-info">Incoming call from: Unknown</p>
+        <button class="call-button accept" onclick="acceptCall()">Accept</button>
+        <button class="call-button reject" onclick="rejectCall()">Reject</button>
+    </div>
+    
+    <div id="call-controls">
+        <button class="control-button" onclick="muteCall()">Mute</button>
+        <button class="control-button" onclick="unmuteCall()">Unmute</button>
+        <button class="control-button" onclick="endCall()">End Call</button>
+        <button class="control-button" onclick="transferCall()">Transfer</button>
+        <button class="control-button" onclick="startConference()">Start Conference</button>
+    </div>
+    
+    <script>
+        let device, connection;
+        let baseUrl = '<your-serverless-domain>.twil.io';
+
+        fetch(baseUrl + '/get-token?identity=account_manager')
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('identity').innerText = data.identity;
+                device = new Twilio.Device(data.token, { debug: true });
+                device.on('ready', () => updateStatus('Device ready to receive calls'));
+                device.on('incoming', handleIncomingCall);
+                device.on('error', error => updateStatus(`Error: ${error.message}`));
+            });
+
+        function handleIncomingCall(conn) {
+            connection = conn;
+            document.getElementById('caller-info').innerText = `Incoming call from: ${conn.parameters.From}`;
+            document.getElementById('incoming-call').style.display = 'block';
+        }
+
+        function acceptCall() {
+            if (connection) {
+                connection.accept();
+                console.log("Call Accepted. CallSid:", connection.parameters.CallSid);
+                updateStatus('Call in progress...');
+                document.getElementById('incoming-call').style.display = 'none';
+                document.getElementById('call-controls').style.display = 'block';
+                connection.on("disconnect", clearCallControls);
+            }
+        }
+
+        function rejectCall() {
+            if (connection) {
+                connection.reject();
+                updateStatus('Call rejected');
+                document.getElementById('incoming-call').style.display = 'none';
+            }
+        }
+
+        function sendCallAction(action, extraData = {}) {
+            if (!connection) {
+                console.error("Error: No active call.");
+                updateStatus("Error: No active call");
+                return;
+            }
+
+            if (action === "mute") {
+                connection.mute(true);
+                updateStatus("Call muted");
+                return;
+            }
+
+            if (action === "unmute") {
+                connection.mute(false);
+                updateStatus("Call unmuted");
+                return;
+            }
+
+            const requestData = { action, callSid: connection.parameters.CallSid, ...extraData };
+
+            console.log("Sending Call Action:", requestData);
+
+            fetch(baseUrl + "/call-control", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(requestData)
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    updateStatus(`Call action: ${action} executed`);
+
+                    if (action === "end" || action === "transfer") {
+                        clearCallControls();
+                    }
+                } else {
+                    updateStatus(`Error: ${data.error}`);
+                }
+            })
+            .catch(error => {
+                console.error("Call control error:", error);
+                updateStatus("Error executing call action");
+            });
+        }
+
+        function muteCall() { sendCallAction("mute"); }
+        function unmuteCall() { sendCallAction("unmute"); }
+        function endCall() { sendCallAction("end"); }
+        function transferCall() {
+            const target = prompt("Enter recipient identity:");
+            if (target) sendCallAction("transfer", { targetClient: target });
+        }
+        function startConference() { sendCallAction("conference", { conferenceName: "SupportRoom" }); }
+
+        function clearCallControls() {
+            document.getElementById('call-controls').style.display = 'none';
+            connection = null;
+        }
+
+        function updateStatus(message) {
+            document.getElementById('status').innerText = `Status: ${message}`;
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Marketplace Help Center</title>
+    <script src="https://sdk.twilio.com/js/client/v1.14/twilio.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .collapsible { background-color: #f1f1f1; cursor: pointer; padding: 10px; border: none; text-align: left; width: 100%; outline: none; font-size: 18px; }
+        .content { padding: 10px; display: none; background-color: white; border: 1px solid #ddd; }
+        .active, .collapsible:hover { background-color: #ddd; }
+        .call-button { margin-top: 10px; padding: 10px; background-color: #007BFF; color: white; border: none; cursor: pointer; }
+        .call-button:disabled { background-color: #ccc; cursor: not-allowed; }
+        .call-controls { margin-top: 10px; display: none; }
+        .control-button { padding: 5px; margin: 5px; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <h2>Marketplace Help Center</h2>
+    
+    <button class="collapsible">Onboarding</button>
+    <div class="content">
+        <p>Step 1: Register your seller account on the marketplace.</p>
+        <p>Step 2: Verify your identity using official documentation.</p>
+        <p>Step 3: Select the country or region where you want to sell.</p>
+        <p>Step 4: Complete the tax and payment setup.</p>
+    </div>
+    
+    <button class="collapsible">Reset Password</button>
+    <div class="content">
+        <p>Web: Click on "Forgot Password" on the login page and follow the instructions.</p>
+        <p>Mobile App: Open the app, go to login, and tap "Forgot Password" to reset it.</p>
+    </div>
+    
+    <button class="collapsible">Recover Account</button>
+    <div class="content">
+        <p>To recover a lost or hijacked account, please contact your account manager directly.</p>
+        <button class="call-button" onclick="callAccountManager()">Call Account Manager Now</button>
+        
+        <div class="call-controls" id="call-controls">
+            <button class="control-button" onclick="muteCall()">Mute</button>
+            <button class="control-button" onclick="unmuteCall()">Unmute</button>
+            <button class="control-button" onclick="endCall()">End Call</button>
+            <button class="control-button" onclick="transferCall()">Transfer</button>
+            <button class="control-button" onclick="startConference()">Start Conference</button>
+        </div>
+    </div>
+    
+    <p id="status">Status: Ready</p>
+    
+    <script>
+        let device, connection;
+        let baseUrl = '<your-serverless-domain>.twil.io';
+
+        document.querySelectorAll(".collapsible").forEach(button => {
+            button.addEventListener("click", function() {
+                this.classList.toggle("active");
+                let content = this.nextElementSibling;
+                content.style.display = content.style.display === "block" ? "none" : "block";
+            });
+        });
+        
+        fetch(baseUrl + '/get-token')
+            .then(response => response.json())
+            .then(data => {
+                device = new Twilio.Device(data.token, { debug: true });
+                device.on('ready', () => updateStatus('Device ready'));
+                device.on('incoming', handleIncomingCall);
+                device.on('error', error => updateStatus(`Error: ${error.message}`));
+            });
+
+        function callAccountManager() {
+            const identity = "account_manager";
+            updateStatus(`Calling ${identity}...`);
+            connection = device.connect({ To: identity });
+            document.getElementById('call-controls').style.display = 'block';
+            connection.on("disconnect", clearCallControls);
+        }
+
+        function sendCallAction(action, extraData = {}) {
+            if (!connection) {
+                console.error("Error: No active call.");
+                updateStatus("Error: No active call");
+                return;
+            }
+
+            if (action === "mute") {
+                connection.mute(true);
+                updateStatus("Call muted");
+                return;
+            }
+
+            if (action === "unmute") {
+                connection.mute(false);
+                updateStatus("Call unmuted");
+                return;
+            }
+
+            const requestData = { action, callSid: connection.parameters.CallSid, ...extraData };
+
+            console.log("Sending Call Action:", requestData);
+
+            fetch(baseUrl + "/call-control", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(requestData)
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    updateStatus(`Call action: ${action} executed`);
+
+                    if (action === "end" || action === "transfer") {
+                        clearCallControls();
+                    }
+                } else {
+                    updateStatus(`Error: ${data.error}`);
+                }
+            })
+            .catch(error => {
+                console.error("Call control error:", error);
+                updateStatus("Error executing call action");
+            });
+        }
+
+        function muteCall() { sendCallAction("mute"); }
+        function unmuteCall() { sendCallAction("unmute"); }
+        function endCall() { sendCallAction("end"); }
+        function transferCall() {
+            const target = prompt("Enter recipient identity:");
+            if (target) sendCallAction("transfer", { targetClient: target });
+        }
+        function startConference() { sendCallAction("conference", { conferenceName: "SupportRoom" }); }
+
+        function clearCallControls() {
+            document.getElementById('call-controls').style.display = 'none';
+            connection = null;
+        }
+
+        function updateStatus(message) {
+            document.getElementById('status').innerText = `Status: ${message}`;
+        }
+    </script>
+</body>
+</html>

@@ -92,7 +92,7 @@ Then open your browser and navigate to:
 http://localhost:8000/help_center_article.html
 http://localhost:8000/account_manager_interface.html
 ```
-```
+
 
 ---
 
